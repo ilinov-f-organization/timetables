@@ -14,7 +14,8 @@ import (
 
 const assignSubgroupToLesson = `-- name: AssignSubgroupToLesson :exec
 INSERT INTO subgroups_assignments (lesson_id, subgroup_id)
-VALUES ($1, $2) ON CONFLICT (lesson_id, subgroup_id) DO NOTHING
+VALUES ($1, $2)
+ON CONFLICT (lesson_id, subgroup_id) DO NOTHING
 `
 
 type AssignSubgroupToLessonParams struct {
@@ -30,7 +31,8 @@ func (q *Queries) AssignSubgroupToLesson(ctx context.Context, arg AssignSubgroup
 const assignTeacherLocationToLesson = `-- name: AssignTeacherLocationToLesson :exec
 INSERT INTO teacher_location_assignments (lesson_id, teacher_id, location_id)
 VALUES ($1, $2,
-        $3) ON CONFLICT (lesson_id, teacher_id, location_id) DO NOTHING
+        $3)
+ON CONFLICT (lesson_id, teacher_id, location_id) DO NOTHING
 `
 
 type AssignTeacherLocationToLessonParams struct {
@@ -45,12 +47,14 @@ func (q *Queries) AssignTeacherLocationToLesson(ctx context.Context, arg AssignT
 }
 
 const createLesson = `-- name: CreateLesson :one
-INSERT INTO lessons (subject_id, category, day, time_start, time_end, repeat_rule, timetable_id)
-VALUES ($1, $2, $3, $4,
-        $5, $6, $7) RETURNING id
+INSERT INTO lessons (hash, subject_id, category, day, time_start, time_end, repeat_rule, timetable_id)
+VALUES ($1, $2, $3, $4, $5,
+        $6, $7, $8)
+RETURNING id
 `
 
 type CreateLessonParams struct {
+	Hash        string
 	SubjectID   int32
 	Category    string
 	Day         int32
@@ -62,6 +66,7 @@ type CreateLessonParams struct {
 
 func (q *Queries) CreateLesson(ctx context.Context, arg CreateLessonParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, createLesson,
+		arg.Hash,
 		arg.SubjectID,
 		arg.Category,
 		arg.Day,
@@ -75,10 +80,28 @@ func (q *Queries) CreateLesson(ctx context.Context, arg CreateLessonParams) (uui
 	return id, err
 }
 
+type CreateLessonsParams struct {
+	Hash        string
+	SubjectID   int32
+	Category    string
+	Day         int32
+	TimeStart   int32
+	TimeEnd     int32
+	RepeatRule  int32
+	TimetableID int32
+}
+
+type CreateTimetablesParams struct {
+	Name      string
+	DateStart time.Time
+	DateEnd   time.Time
+}
+
 const deleteLessonById = `-- name: DeleteLessonById :one
 DELETE
 FROM lessons
-WHERE id = $1 RETURNING id
+WHERE id = $1
+RETURNING id
 `
 
 func (q *Queries) DeleteLessonById(ctx context.Context, lessonID uuid.UUID) (uuid.UUID, error) {
@@ -91,7 +114,8 @@ func (q *Queries) DeleteLessonById(ctx context.Context, lessonID uuid.UUID) (uui
 const deleteLocationById = `-- name: DeleteLocationById :one
 DELETE
 FROM locations
-WHERE id = $1 RETURNING id, name
+WHERE id = $1
+RETURNING id, name
 `
 
 func (q *Queries) DeleteLocationById(ctx context.Context, id int32) (Location, error) {
@@ -104,7 +128,8 @@ func (q *Queries) DeleteLocationById(ctx context.Context, id int32) (Location, e
 const deleteSubgroupById = `-- name: DeleteSubgroupById :one
 DELETE
 FROM subgroups
-WHERE id = $1 RETURNING id, name
+WHERE id = $1
+RETURNING id, name
 `
 
 func (q *Queries) DeleteSubgroupById(ctx context.Context, id int32) (Subgroup, error) {
@@ -117,7 +142,8 @@ func (q *Queries) DeleteSubgroupById(ctx context.Context, id int32) (Subgroup, e
 const deleteSubjectById = `-- name: DeleteSubjectById :one
 DELETE
 FROM subjects
-WHERE id = $1 RETURNING id, name
+WHERE id = $1
+RETURNING id, name
 `
 
 func (q *Queries) DeleteSubjectById(ctx context.Context, id int32) (Subject, error) {
@@ -130,7 +156,8 @@ func (q *Queries) DeleteSubjectById(ctx context.Context, id int32) (Subject, err
 const deleteTeacherById = `-- name: DeleteTeacherById :one
 DELETE
 FROM teachers
-WHERE id = $1 RETURNING id, name
+WHERE id = $1
+RETURNING id, name
 `
 
 func (q *Queries) DeleteTeacherById(ctx context.Context, id int32) (Teacher, error) {
@@ -143,7 +170,8 @@ func (q *Queries) DeleteTeacherById(ctx context.Context, id int32) (Teacher, err
 const deleteTimetableById = `-- name: DeleteTimetableById :one
 DELETE
 FROM timetables
-WHERE id = $1 RETURNING id, name
+WHERE id = $1
+RETURNING id, name
 `
 
 type DeleteTimetableByIdRow struct {
@@ -158,19 +186,195 @@ func (q *Queries) DeleteTimetableById(ctx context.Context, id int32) (DeleteTime
 	return i, err
 }
 
+const getAllLessons = `-- name: GetAllLessons :many
+SELECT id, hash, subject_id, category, day, time_start, time_end, repeat_rule, timetable_id
+FROM lessons
+`
+
+func (q *Queries) GetAllLessons(ctx context.Context) ([]Lesson, error) {
+	rows, err := q.db.Query(ctx, getAllLessons)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Lesson
+	for rows.Next() {
+		var i Lesson
+		if err := rows.Scan(
+			&i.ID,
+			&i.Hash,
+			&i.SubjectID,
+			&i.Category,
+			&i.Day,
+			&i.TimeStart,
+			&i.TimeEnd,
+			&i.RepeatRule,
+			&i.TimetableID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAllLocations = `-- name: GetAllLocations :many
+SELECT id, name
+FROM locations
+`
+
+func (q *Queries) GetAllLocations(ctx context.Context) ([]Location, error) {
+	rows, err := q.db.Query(ctx, getAllLocations)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Location
+	for rows.Next() {
+		var i Location
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAllSubgroups = `-- name: GetAllSubgroups :many
+SELECT id, name
+FROM subgroups
+`
+
+func (q *Queries) GetAllSubgroups(ctx context.Context) ([]Subgroup, error) {
+	rows, err := q.db.Query(ctx, getAllSubgroups)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Subgroup
+	for rows.Next() {
+		var i Subgroup
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAllSubjects = `-- name: GetAllSubjects :many
+SELECT id, name
+FROM subjects
+`
+
+func (q *Queries) GetAllSubjects(ctx context.Context) ([]Subject, error) {
+	rows, err := q.db.Query(ctx, getAllSubjects)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Subject
+	for rows.Next() {
+		var i Subject
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAllTeachers = `-- name: GetAllTeachers :many
+SELECT id, name
+FROM teachers
+`
+
+func (q *Queries) GetAllTeachers(ctx context.Context) ([]Teacher, error) {
+	rows, err := q.db.Query(ctx, getAllTeachers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Teacher
+	for rows.Next() {
+		var i Teacher
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAllTimetables = `-- name: GetAllTimetables :many
+SELECT id, name, date_start, date_end
+FROM timetables
+`
+
+func (q *Queries) GetAllTimetables(ctx context.Context) ([]Timetable, error) {
+	rows, err := q.db.Query(ctx, getAllTimetables)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Timetable
+	for rows.Next() {
+		var i Timetable
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.DateStart,
+			&i.DateEnd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getLessonIDByHash = `-- name: GetLessonIDByHash :one
+SELECT id FROM lessons WHERE hash = $1
+`
+
+func (q *Queries) GetLessonIDByHash(ctx context.Context, hash string) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getLessonIDByHash, hash)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getLessonsBySubgroupId = `-- name: GetLessonsBySubgroupId :many
 SELECT id,
        subject_id,
-       (SELECT name FROM subjects WHERE id = subject_id)     as subject_name,
+       (SELECT name FROM subjects WHERE id = subject_id)           as subject_name,
        category,
        day,
        time_start,
        time_end,
        repeat_rule,
        timetable_id,
-       (SELECT name FROM timetables WHERE id = timetable_id) as timetable_name,
+       (SELECT name FROM timetables WHERE id = timetable_id)       as timetable_name,
        (SELECT date_start FROM timetables WHERE id = timetable_id) as timetable_date_start,
-       (SELECT date_end FROM timetables WHERE id = timetable_id) as timetable_date_end
+       (SELECT date_end FROM timetables WHERE id = timetable_id)   as timetable_date_end
 FROM lessons
          JOIN subgroups_assignments
               ON subgroups_assignments.lesson_id = id AND subgroups_assignments.subgroup_id = $1
@@ -237,22 +441,98 @@ func (q *Queries) GetLocationById(ctx context.Context, id int32) (Location, erro
 	return i, err
 }
 
-const getLocations = `-- name: GetLocations :many
+const getOrCreateLocationByName = `-- name: GetOrCreateLocationByName :one
+INSERT INTO locations (name)
+VALUES ($1)
+ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+RETURNING id
+`
+
+func (q *Queries) GetOrCreateLocationByName(ctx context.Context, name string) (int32, error) {
+	row := q.db.QueryRow(ctx, getOrCreateLocationByName, name)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getOrCreateSubgroupByName = `-- name: GetOrCreateSubgroupByName :one
+INSERT INTO subgroups (name)
+VALUES ($1)
+ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+RETURNING id
+`
+
+func (q *Queries) GetOrCreateSubgroupByName(ctx context.Context, name string) (int32, error) {
+	row := q.db.QueryRow(ctx, getOrCreateSubgroupByName, name)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getOrCreateSubjectByName = `-- name: GetOrCreateSubjectByName :one
+INSERT INTO subjects (name)
+VALUES ($1)
+ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+RETURNING id
+`
+
+func (q *Queries) GetOrCreateSubjectByName(ctx context.Context, name string) (int32, error) {
+	row := q.db.QueryRow(ctx, getOrCreateSubjectByName, name)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getOrCreateTeacherByName = `-- name: GetOrCreateTeacherByName :one
+INSERT INTO teachers (name)
+VALUES ($1)
+ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+RETURNING id
+`
+
+func (q *Queries) GetOrCreateTeacherByName(ctx context.Context, name string) (int32, error) {
+	row := q.db.QueryRow(ctx, getOrCreateTeacherByName, name)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getOrCreateTimetableByName = `-- name: GetOrCreateTimetableByName :one
+INSERT INTO timetables (name, date_start, date_end)
+VALUES ($1, $2, $3)
+ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+RETURNING id
+`
+
+type GetOrCreateTimetableByNameParams struct {
+	Name      string
+	DateStart time.Time
+	DateEnd   time.Time
+}
+
+func (q *Queries) GetOrCreateTimetableByName(ctx context.Context, arg GetOrCreateTimetableByNameParams) (int32, error) {
+	row := q.db.QueryRow(ctx, getOrCreateTimetableByName, arg.Name, arg.DateStart, arg.DateEnd)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getPaginatedLocations = `-- name: GetPaginatedLocations :many
 SELECT id, name
 FROM locations
 WHERE ($1 IS NULL OR name ILIKE '%' || $1 || '%')
-ORDER BY name LIMIT $2::INTEGER
-OFFSET $2::INTEGER * ($3::INTEGER)
+ORDER BY name
+LIMIT $2::INTEGER OFFSET $2::INTEGER * ($3::INTEGER)
 `
 
-type GetLocationsParams struct {
+type GetPaginatedLocationsParams struct {
 	Name     interface{}
 	PageSize int32
 	Page     int32
 }
 
-func (q *Queries) GetLocations(ctx context.Context, arg GetLocationsParams) ([]Location, error) {
-	rows, err := q.db.Query(ctx, getLocations, arg.Name, arg.PageSize, arg.Page)
+func (q *Queries) GetPaginatedLocations(ctx context.Context, arg GetPaginatedLocationsParams) ([]Location, error) {
+	rows, err := q.db.Query(ctx, getPaginatedLocations, arg.Name, arg.PageSize, arg.Page)
 	if err != nil {
 		return nil, err
 	}
@@ -271,111 +551,22 @@ func (q *Queries) GetLocations(ctx context.Context, arg GetLocationsParams) ([]L
 	return items, nil
 }
 
-const getOrCreateLocationByName = `-- name: GetOrCreateLocationByName :one
-INSERT INTO locations (name)
-VALUES ($1) ON CONFLICT (name) DO
-UPDATE SET name = EXCLUDED.name
-    RETURNING id
-`
-
-func (q *Queries) GetOrCreateLocationByName(ctx context.Context, name string) (int32, error) {
-	row := q.db.QueryRow(ctx, getOrCreateLocationByName, name)
-	var id int32
-	err := row.Scan(&id)
-	return id, err
-}
-
-const getOrCreateSubgroupByName = `-- name: GetOrCreateSubgroupByName :one
-INSERT INTO subgroups (name)
-VALUES ($1) ON CONFLICT (name) DO
-UPDATE SET name = EXCLUDED.name
-    RETURNING id
-`
-
-func (q *Queries) GetOrCreateSubgroupByName(ctx context.Context, name string) (int32, error) {
-	row := q.db.QueryRow(ctx, getOrCreateSubgroupByName, name)
-	var id int32
-	err := row.Scan(&id)
-	return id, err
-}
-
-const getOrCreateSubjectByName = `-- name: GetOrCreateSubjectByName :one
-INSERT INTO subjects (name)
-VALUES ($1) ON CONFLICT (name) DO
-UPDATE SET name = EXCLUDED.name
-    RETURNING id
-`
-
-func (q *Queries) GetOrCreateSubjectByName(ctx context.Context, name string) (int32, error) {
-	row := q.db.QueryRow(ctx, getOrCreateSubjectByName, name)
-	var id int32
-	err := row.Scan(&id)
-	return id, err
-}
-
-const getOrCreateTeacherByName = `-- name: GetOrCreateTeacherByName :one
-INSERT INTO teachers (name)
-VALUES ($1) ON CONFLICT (name) DO
-UPDATE SET name = EXCLUDED.name
-    RETURNING id
-`
-
-func (q *Queries) GetOrCreateTeacherByName(ctx context.Context, name string) (int32, error) {
-	row := q.db.QueryRow(ctx, getOrCreateTeacherByName, name)
-	var id int32
-	err := row.Scan(&id)
-	return id, err
-}
-
-const getOrCreateTimetableByName = `-- name: GetOrCreateTimetableByName :one
-INSERT INTO timetables (name, date_start, date_end)
-VALUES ($1, $2, $3) ON CONFLICT (name) DO
-UPDATE SET name = EXCLUDED.name
-    RETURNING id
-`
-
-type GetOrCreateTimetableByNameParams struct {
-	Name      string
-	DateStart time.Time
-	DateEnd   time.Time
-}
-
-func (q *Queries) GetOrCreateTimetableByName(ctx context.Context, arg GetOrCreateTimetableByNameParams) (int32, error) {
-	row := q.db.QueryRow(ctx, getOrCreateTimetableByName, arg.Name, arg.DateStart, arg.DateEnd)
-	var id int32
-	err := row.Scan(&id)
-	return id, err
-}
-
-const getSubgroupById = `-- name: GetSubgroupById :one
-SELECT id, name
-FROM subgroups
-WHERE id = $1
-`
-
-func (q *Queries) GetSubgroupById(ctx context.Context, id int32) (Subgroup, error) {
-	row := q.db.QueryRow(ctx, getSubgroupById, id)
-	var i Subgroup
-	err := row.Scan(&i.ID, &i.Name)
-	return i, err
-}
-
-const getSubgroups = `-- name: GetSubgroups :many
+const getPaginatedSubgroups = `-- name: GetPaginatedSubgroups :many
 SELECT id, name
 FROM subgroups
 WHERE ($1 IS NULL OR name ILIKE '%' || $1 || '%')
-ORDER BY name LIMIT $2::INTEGER
-OFFSET $2::INTEGER * ($3::INTEGER)
+ORDER BY name
+LIMIT $2::INTEGER OFFSET $2::INTEGER * ($3::INTEGER)
 `
 
-type GetSubgroupsParams struct {
+type GetPaginatedSubgroupsParams struct {
 	Name     interface{}
 	PageSize int32
 	Page     int32
 }
 
-func (q *Queries) GetSubgroups(ctx context.Context, arg GetSubgroupsParams) ([]Subgroup, error) {
-	rows, err := q.db.Query(ctx, getSubgroups, arg.Name, arg.PageSize, arg.Page)
+func (q *Queries) GetPaginatedSubgroups(ctx context.Context, arg GetPaginatedSubgroupsParams) ([]Subgroup, error) {
+	rows, err := q.db.Query(ctx, getPaginatedSubgroups, arg.Name, arg.PageSize, arg.Page)
 	if err != nil {
 		return nil, err
 	}
@@ -394,9 +585,130 @@ func (q *Queries) GetSubgroups(ctx context.Context, arg GetSubgroupsParams) ([]S
 	return items, nil
 }
 
+const getPaginatedSubjects = `-- name: GetPaginatedSubjects :many
+SELECT id, name
+FROM subjects
+WHERE ($1 IS NULL OR name ILIKE '%' || $1 || '%')
+ORDER BY name
+LIMIT $2::INTEGER OFFSET $2::INTEGER * ($3::INTEGER)
+`
+
+type GetPaginatedSubjectsParams struct {
+	Name     interface{}
+	PageSize int32
+	Page     int32
+}
+
+func (q *Queries) GetPaginatedSubjects(ctx context.Context, arg GetPaginatedSubjectsParams) ([]Subject, error) {
+	rows, err := q.db.Query(ctx, getPaginatedSubjects, arg.Name, arg.PageSize, arg.Page)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Subject
+	for rows.Next() {
+		var i Subject
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPaginatedTeachers = `-- name: GetPaginatedTeachers :many
+SELECT id, name
+FROM teachers
+WHERE ($1 IS NULL OR name ILIKE '%' || $1 || '%')
+ORDER BY name
+LIMIT $2::INTEGER OFFSET $2::INTEGER * ($3::INTEGER)
+`
+
+type GetPaginatedTeachersParams struct {
+	Name     interface{}
+	PageSize int32
+	Page     int32
+}
+
+func (q *Queries) GetPaginatedTeachers(ctx context.Context, arg GetPaginatedTeachersParams) ([]Teacher, error) {
+	rows, err := q.db.Query(ctx, getPaginatedTeachers, arg.Name, arg.PageSize, arg.Page)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Teacher
+	for rows.Next() {
+		var i Teacher
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPaginatedTimetables = `-- name: GetPaginatedTimetables :many
+SELECT id, name
+FROM timetables
+WHERE ($1 IS NULL OR name ILIKE '%' || $1 || '%')
+ORDER BY name
+LIMIT $2::INTEGER OFFSET $2::INTEGER * ($3::INTEGER)
+`
+
+type GetPaginatedTimetablesParams struct {
+	Name     interface{}
+	PageSize int32
+	Page     int32
+}
+
+type GetPaginatedTimetablesRow struct {
+	ID   int32
+	Name string
+}
+
+func (q *Queries) GetPaginatedTimetables(ctx context.Context, arg GetPaginatedTimetablesParams) ([]GetPaginatedTimetablesRow, error) {
+	rows, err := q.db.Query(ctx, getPaginatedTimetables, arg.Name, arg.PageSize, arg.Page)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPaginatedTimetablesRow
+	for rows.Next() {
+		var i GetPaginatedTimetablesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getSubgroupById = `-- name: GetSubgroupById :one
+SELECT id, name
+FROM subgroups
+WHERE id = $1
+`
+
+func (q *Queries) GetSubgroupById(ctx context.Context, id int32) (Subgroup, error) {
+	row := q.db.QueryRow(ctx, getSubgroupById, id)
+	var i Subgroup
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
 const getSubgroupsAssignmentByLessonId = `-- name: GetSubgroupsAssignmentByLessonId :many
 SELECT subgroup_id, (SELECT name FROM subgroups WHERE id = subgroup_id) AS subgroup_name
-FROM subgroups_assignments WHERE lesson_id = $1
+FROM subgroups_assignments
+WHERE lesson_id = $1 ORDER BY subgroup_name
 `
 
 type GetSubgroupsAssignmentByLessonIdRow struct {
@@ -437,40 +749,6 @@ func (q *Queries) GetSubjectById(ctx context.Context, id int32) (Subject, error)
 	return i, err
 }
 
-const getSubjects = `-- name: GetSubjects :many
-SELECT id, name
-FROM subjects
-WHERE ($1 IS NULL OR name ILIKE '%' || $1 || '%')
-ORDER BY name LIMIT $2::INTEGER
-OFFSET $2::INTEGER * ($3::INTEGER)
-`
-
-type GetSubjectsParams struct {
-	Name     interface{}
-	PageSize int32
-	Page     int32
-}
-
-func (q *Queries) GetSubjects(ctx context.Context, arg GetSubjectsParams) ([]Subject, error) {
-	rows, err := q.db.Query(ctx, getSubjects, arg.Name, arg.PageSize, arg.Page)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Subject
-	for rows.Next() {
-		var i Subject
-		if err := rows.Scan(&i.ID, &i.Name); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getTeacherById = `-- name: GetTeacherById :one
 SELECT id, name
 FROM teachers
@@ -485,9 +763,12 @@ func (q *Queries) GetTeacherById(ctx context.Context, id int32) (Teacher, error)
 }
 
 const getTeacherLocationAssignmentsByLessonId = `-- name: GetTeacherLocationAssignmentsByLessonId :many
-SELECT teacher_id, (SELECT name FROM teachers WHERE id = teacher_id) AS teacher_name,
-       location_id, (SELECT name FROM locations WHERE id = location_id) AS location_name
-FROM teacher_location_assignments WHERE lesson_id = $1
+SELECT teacher_id,
+       (SELECT name FROM teachers WHERE id = teacher_id)   AS teacher_name,
+       location_id,
+       (SELECT name FROM locations WHERE id = location_id) AS location_name
+FROM teacher_location_assignments
+WHERE lesson_id = $1 ORDER BY teacher_name, location_name
 `
 
 type GetTeacherLocationAssignmentsByLessonIdRow struct {
@@ -522,40 +803,6 @@ func (q *Queries) GetTeacherLocationAssignmentsByLessonId(ctx context.Context, l
 	return items, nil
 }
 
-const getTeachers = `-- name: GetTeachers :many
-SELECT id, name
-FROM teachers
-WHERE ($1 IS NULL OR name ILIKE '%' || $1 || '%')
-ORDER BY name LIMIT $2::INTEGER
-OFFSET $2::INTEGER * ($3::INTEGER)
-`
-
-type GetTeachersParams struct {
-	Name     interface{}
-	PageSize int32
-	Page     int32
-}
-
-func (q *Queries) GetTeachers(ctx context.Context, arg GetTeachersParams) ([]Teacher, error) {
-	rows, err := q.db.Query(ctx, getTeachers, arg.Name, arg.PageSize, arg.Page)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Teacher
-	for rows.Next() {
-		var i Teacher
-		if err := rows.Scan(&i.ID, &i.Name); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getTimetableById = `-- name: GetTimetableById :one
 SELECT id, name, date_start, date_end
 FROM timetables
@@ -574,57 +821,21 @@ func (q *Queries) GetTimetableById(ctx context.Context, id int32) (Timetable, er
 	return i, err
 }
 
-const getTimetables = `-- name: GetTimetables :many
-SELECT id, name
-FROM timetables
-WHERE ($1 IS NULL OR name ILIKE '%' || $1 || '%')
-ORDER BY name LIMIT $2::INTEGER
-OFFSET $2::INTEGER * ($3::INTEGER)
-`
-
-type GetTimetablesParams struct {
-	Name     interface{}
-	PageSize int32
-	Page     int32
-}
-
-type GetTimetablesRow struct {
-	ID   int32
-	Name string
-}
-
-func (q *Queries) GetTimetables(ctx context.Context, arg GetTimetablesParams) ([]GetTimetablesRow, error) {
-	rows, err := q.db.Query(ctx, getTimetables, arg.Name, arg.PageSize, arg.Page)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetTimetablesRow
-	for rows.Next() {
-		var i GetTimetablesRow
-		if err := rows.Scan(&i.ID, &i.Name); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const patchLessonById = `-- name: PatchLessonById :one
 UPDATE lessons
-SET category     = $1,
-    day          = $2,
-    time_start   = $3,
-    time_end     = $4,
-    repeat_rule  = $5,
-    timetable_id = $6
-WHERE id = $7 RETURNING id
+SET hash         = $1,
+    category     = $2,
+    day          = $3,
+    time_start   = $4,
+    time_end     = $5,
+    repeat_rule  = $6,
+    timetable_id = $7
+WHERE id = $8
+RETURNING id
 `
 
 type PatchLessonByIdParams struct {
+	Hash        string
 	Category    string
 	Day         int32
 	TimeStart   int32
@@ -636,6 +847,7 @@ type PatchLessonByIdParams struct {
 
 func (q *Queries) PatchLessonById(ctx context.Context, arg PatchLessonByIdParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, patchLessonById,
+		arg.Hash,
 		arg.Category,
 		arg.Day,
 		arg.TimeStart,
@@ -652,7 +864,8 @@ func (q *Queries) PatchLessonById(ctx context.Context, arg PatchLessonByIdParams
 const patchLocationById = `-- name: PatchLocationById :one
 UPDATE locations
 SET name = $1
-WHERE id = $2 RETURNING id, name
+WHERE id = $2
+RETURNING id, name
 `
 
 type PatchLocationByIdParams struct {
@@ -670,7 +883,8 @@ func (q *Queries) PatchLocationById(ctx context.Context, arg PatchLocationByIdPa
 const patchSubgroupById = `-- name: PatchSubgroupById :one
 UPDATE subgroups
 SET name = $1
-WHERE id = $2 RETURNING id, name
+WHERE id = $2
+RETURNING id, name
 `
 
 type PatchSubgroupByIdParams struct {
@@ -688,7 +902,8 @@ func (q *Queries) PatchSubgroupById(ctx context.Context, arg PatchSubgroupByIdPa
 const patchSubjectById = `-- name: PatchSubjectById :one
 UPDATE subjects
 SET name = $1
-WHERE id = $2 RETURNING id, name
+WHERE id = $2
+RETURNING id, name
 `
 
 type PatchSubjectByIdParams struct {
@@ -706,7 +921,8 @@ func (q *Queries) PatchSubjectById(ctx context.Context, arg PatchSubjectByIdPara
 const patchTeacherById = `-- name: PatchTeacherById :one
 UPDATE teachers
 SET name = $1
-WHERE id = $2 RETURNING id, name
+WHERE id = $2
+RETURNING id, name
 `
 
 type PatchTeacherByIdParams struct {
@@ -726,7 +942,8 @@ UPDATE timetables
 SET name       = $1,
     date_start = $2,
     date_end   = $3
-WHERE id = $4 RETURNING id, name, date_start, date_end
+WHERE id = $4
+RETURNING id, name, date_start, date_end
 `
 
 type PatchTimetableByIdParams struct {

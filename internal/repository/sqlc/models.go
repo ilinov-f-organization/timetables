@@ -12,6 +12,7 @@ import (
 
 type Lesson struct {
 	ID          uuid.UUID
+	Hash        string
 	SubjectID   int32
 	Category    string
 	Day         int32

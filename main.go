@@ -5,6 +5,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	_ "net/http/pprof"
 	"timetables/internal/api"
 	"timetables/internal/application"
 	"timetables/internal/repository"
@@ -27,7 +28,7 @@ func main() {
 	h := api.HandlerFromMux(sh, r)
 	s := &http.Server{
 		Handler: h,
-		Addr:    "0.0.0.0:80",
+		Addr:    "0.0.0.0:81",
 	}
 
 	// And we serve HTTP until the world ends.

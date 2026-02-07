@@ -2,12 +2,15 @@ package lib
 
 import (
 	"bytes"
+	"crypto/md5"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -63,17 +66,83 @@ func (t *TeacherLocationAssignment) SetLocation(location string) {
 	t.location = strings.TrimSpace(location)
 }
 
+var (
+	defaultDateStart = time.Unix(0, 0)
+	defaultDateEnd   = time.Unix(0, 0)
+)
+
+type Timetable struct {
+	id        int32
+	dateStart time.Time
+	dateEnd   time.Time
+}
+
+func (t *Timetable) Id() int32 {
+	return t.id
+}
+
+func (t *Timetable) SetId(id int32) {
+	t.id = id
+}
+
+func NewTimetable(id int32, dateStart time.Time, dateEnd time.Time) *Timetable {
+	return &Timetable{id: id, dateStart: dateStart, dateEnd: dateEnd}
+}
+
+func (t *Timetable) DateStart() time.Time {
+	return t.dateStart
+}
+
+func (t *Timetable) SetDateStart(dateStart time.Time) {
+	t.dateStart = dateStart
+}
+
+func (t *Timetable) DateEnd() time.Time {
+	return t.dateEnd
+}
+
+func (t *Timetable) SetDateEnd(dateEnd time.Time) {
+	t.dateEnd = dateEnd
+}
+
 // Lesson represents a single lesson with all its properties
 type Lesson struct {
+	id                         uuid.UUID
+	isUpdated                  bool
+	timetable                  string
 	rawName                    string
-	subgroup                   string
 	subject                    string
 	category                   string
-	day                        int
-	timeStart                  int // minutes from midnight
-	timeEnd                    int // minutes from midnight
-	repeatRule                 int // 0 = every week, 1 = odd weeks, 2 = even weeks
+	day                        int32
+	timeStart                  int32 // minutes from midnight
+	timeEnd                    int32 // minutes from midnight
+	repeatRule                 int32 // 0 = every week, 1 = odd weeks, 2 = even weeks
+	subgroups                  map[string]struct{}
 	teacherLocationAssignments []TeacherLocationAssignment
+}
+
+func (l *Lesson) Id() uuid.UUID {
+	return l.id
+}
+
+func (l *Lesson) SetId(id uuid.UUID) {
+	l.id = id
+}
+
+func (l *Lesson) Timetable() string {
+	return l.timetable
+}
+
+func (l *Lesson) SetTimetable(timetable string) {
+	l.timetable = timetable
+}
+
+func (l *Lesson) IsUpdated() bool {
+	return l.isUpdated
+}
+
+func (l *Lesson) SetIsUpdated(isUpdated bool) {
+	l.isUpdated = isUpdated
 }
 
 func (l *Lesson) RawName() string {
@@ -84,12 +153,12 @@ func (l *Lesson) SetRawName(rawName string) {
 	l.rawName = strings.TrimSpace(rawName)
 }
 
-func (l *Lesson) Subgroup() string {
-	return l.subgroup
+func (l *Lesson) Subgroups() []string {
+	return slices.Collect(maps.Keys(l.subgroups))
 }
 
-func (l *Lesson) SetSubgroup(subgroup string) {
-	l.subgroup = strings.TrimSpace(subgroup)
+func (l *Lesson) AddSubgroup(name string) {
+	l.subgroups[strings.TrimSpace(name)] = struct{}{}
 }
 
 func (l *Lesson) Subject() string {
@@ -108,35 +177,35 @@ func (l *Lesson) SetCategory(category string) {
 	l.category = strings.TrimSpace(category)
 }
 
-func (l *Lesson) Day() int {
+func (l *Lesson) Day() int32 {
 	return l.day
 }
 
-func (l *Lesson) SetDay(day int) {
+func (l *Lesson) SetDay(day int32) {
 	l.day = day
 }
 
-func (l *Lesson) TimeStart() int {
+func (l *Lesson) TimeStart() int32 {
 	return l.timeStart
 }
 
-func (l *Lesson) SetTimeStart(timeStart int) {
+func (l *Lesson) SetTimeStart(timeStart int32) {
 	l.timeStart = timeStart
 }
 
-func (l *Lesson) TimeEnd() int {
+func (l *Lesson) TimeEnd() int32 {
 	return l.timeEnd
 }
 
-func (l *Lesson) SetTimeEnd(timeEnd int) {
+func (l *Lesson) SetTimeEnd(timeEnd int32) {
 	l.timeEnd = timeEnd
 }
 
-func (l *Lesson) RepeatRule() int {
+func (l *Lesson) RepeatRule() int32 {
 	return l.repeatRule
 }
 
-func (l *Lesson) SetRepeatRule(repeatRule int) {
+func (l *Lesson) SetRepeatRule(repeatRule int32) {
 	l.repeatRule = repeatRule
 }
 
@@ -171,28 +240,184 @@ func (p *ParsedXlsx) SetTimetable(timetable string) {
 }
 
 // XlsxParser handles parsing of Excel timetable files
-type XlsxParser struct{}
+type XlsxParser struct {
+	locations  map[string]int32
+	subgroups  map[string]int32
+	subjects   map[string]int32
+	teachers   map[string]int32
+	timetables map[string]*Timetable
+	lessons    map[string]*Lesson
+}
+
+func (p *XlsxParser) LocationsNames() []string {
+	return slices.Collect(maps.Keys(p.locations))
+}
+
+func (p *XlsxParser) SubgroupsNames() []string {
+	return slices.Collect(maps.Keys(p.subgroups))
+}
+
+func (p *XlsxParser) SubjectsNames() []string {
+	return slices.Collect(maps.Keys(p.subjects))
+}
+
+func (p *XlsxParser) TeachersNames() []string {
+	return slices.Collect(maps.Keys(p.teachers))
+}
+
+func (p *XlsxParser) TimetablesNames() []string {
+	return slices.Collect(maps.Keys(p.timetables))
+}
+
+func (p *XlsxParser) LessonsHashes() []string {
+	return slices.Collect(maps.Keys(p.lessons))
+}
+
+func (p *XlsxParser) GetLessonByHash(hash string) *Lesson {
+	return p.lessons[hash]
+}
+
+func (p *XlsxParser) GetOrCacheLocation(name string, id int32) int32 {
+	if cached, ok := p.locations[name]; ok {
+		return cached
+	}
+	p.locations[name] = id
+	return id
+}
+
+func (p *XlsxParser) RewriteCacheLocation(name string, id int32) error {
+	if _, ok := p.locations[name]; !ok {
+		return fmt.Errorf("cannot find location: %s", name)
+	}
+	p.locations[name] = id
+	return nil
+}
+
+func (p *XlsxParser) HasLocation(name string) bool {
+	_, ok := p.locations[name]
+	return ok
+}
+
+func (p *XlsxParser) GetOrCacheSubgroup(name string, id int32) int32 {
+	if cached, ok := p.subgroups[name]; ok {
+		return cached
+	}
+	p.subgroups[name] = id
+	return id
+}
+
+func (p *XlsxParser) RewriteCacheSubgroup(name string, id int32) error {
+	if _, ok := p.subgroups[name]; !ok {
+		return fmt.Errorf("cannot find subgroup: %s", name)
+	}
+	p.subgroups[name] = id
+	return nil
+}
+
+func (p *XlsxParser) HasSubgroup(name string) bool {
+	_, ok := p.subgroups[name]
+	return ok
+}
+
+func (p *XlsxParser) GetOrCacheSubject(name string, id int32) int32 {
+	if cached, ok := p.subjects[name]; ok {
+		return cached
+	}
+	p.subjects[name] = id
+	return id
+}
+
+func (p *XlsxParser) RewriteCacheSubject(name string, id int32) error {
+	if _, ok := p.subjects[name]; !ok {
+		return fmt.Errorf("cannot find subject: %s", name)
+	}
+	p.subjects[name] = id
+	return nil
+}
+
+func (p *XlsxParser) HasSubject(name string) bool {
+	_, ok := p.subjects[name]
+	return ok
+}
+
+func (p *XlsxParser) GetOrCacheTeacher(name string, id int32) int32 {
+	if cached, ok := p.teachers[name]; ok {
+		return cached
+	}
+	p.teachers[name] = id
+	return id
+}
+
+func (p *XlsxParser) RewriteCacheTeacher(name string, id int32) error {
+	if _, ok := p.teachers[name]; !ok {
+		return fmt.Errorf("cannot find teacher: %s", name)
+	}
+	p.teachers[name] = id
+	return nil
+}
+
+func (p *XlsxParser) HasTeacher(name string) bool {
+	_, ok := p.teachers[name]
+	return ok
+}
+
+func (p *XlsxParser) GetOrCacheTimetable(name string, timetable *Timetable) *Timetable {
+	if cached, ok := p.timetables[name]; ok {
+		return cached
+	}
+	p.timetables[name] = timetable
+	return timetable
+}
+
+func (p *XlsxParser) RewriteCacheTimetable(name string, timetable *Timetable) error {
+	if _, ok := p.timetables[name]; !ok {
+		return fmt.Errorf("cannot find timetable: %s", name)
+	}
+	p.timetables[name] = timetable
+	return nil
+}
+
+func (p *XlsxParser) HasTimetable(name string) bool {
+	_, ok := p.timetables[name]
+	return ok
+}
+
+func (p *XlsxParser) GetOrCacheLesson(hash string, lesson *Lesson) *Lesson {
+	if cached, ok := p.lessons[hash]; ok {
+		return cached
+	}
+	p.lessons[hash] = lesson
+	return lesson
+}
+
+func (p *XlsxParser) HasLesson(hash string) bool {
+	_, ok := p.lessons[hash]
+	return ok
+}
 
 // NewXlsxParser creates a new parser instance
 func NewXlsxParser() *XlsxParser {
-	return &XlsxParser{}
+	return &XlsxParser{
+		locations:  make(map[string]int32),
+		subgroups:  make(map[string]int32),
+		subjects:   make(map[string]int32),
+		teachers:   make(map[string]int32),
+		timetables: make(map[string]*Timetable),
+		lessons:    make(map[string]*Lesson),
+	}
 }
 
 // ParseXlsx parses the Excel file and returns structured lesson data
-func ParseXlsx(xlsxData []byte) (*ParsedXlsx, error) {
-	file, err := OpenXlsxFile(xlsxData)
-	if err != nil {
-		return nil, err
-	}
-
+func ParseXlsx(xlsxData []byte) error {
 	parser := NewXlsxParser()
-	return parser.Parse(file)
+	return parser.Parse(xlsxData)
 }
 
 // OpenXlsxFile opens an Excel file from byte data
 func OpenXlsxFile(xlsxData []byte) (*excelize.File, error) {
 	reader := bytes.NewReader(xlsxData)
 	file, err := excelize.OpenReader(reader)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to open xlsx file: %w", err)
 	}
@@ -200,21 +425,22 @@ func OpenXlsxFile(xlsxData []byte) (*excelize.File, error) {
 }
 
 // Parse executes the parsing process for the given file
-func (p *XlsxParser) Parse(file *excelize.File) (*ParsedXlsx, error) {
-	timetable, err := p.getTimetableTitle(file)
+func (p *XlsxParser) Parse(xlsxData []byte) error {
+	file, err := OpenXlsxFile(xlsxData)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	timetableName, err := p.getTimetableTitle(file)
+	if err != nil {
+		return err
 	}
 
-	lessons, err := p.parseAllLessons(file)
+	err = p.parseAllLessons(file, timetableName)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	parsedXlsx := new(ParsedXlsx)
-	parsedXlsx.SetLessons(lessons)
-	parsedXlsx.SetTimetable(timetable)
-	return parsedXlsx, nil
+	return nil
 }
 
 // getTimetableTitle retrieves the timetable title from the spreadsheet
@@ -227,18 +453,17 @@ func (p *XlsxParser) getTimetableTitle(file *excelize.File) (string, error) {
 }
 
 // parseAllLessons parses lessons from all subgroups
-func (p *XlsxParser) parseAllLessons(file *excelize.File) ([]Lesson, error) {
-	var allLessons []Lesson
-
+func (p *XlsxParser) parseAllLessons(file *excelize.File, timetableName string) error {
+	allLessons := make([]Lesson, 0)
 	for colIndex := firstSubgroupCol; colIndex <= secondSubgroupCol; colIndex++ {
 		subgroupName, err := p.getSubgroupName(file, colIndex)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		lessons, err := p.parseSubgroupLessons(file, colIndex, subgroupName)
+		lessons, err := p.parseSubgroupLessons(file, colIndex, subgroupName, timetableName)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		// Only add lessons if they differ from already added ones
@@ -247,7 +472,27 @@ func (p *XlsxParser) parseAllLessons(file *excelize.File) ([]Lesson, error) {
 		}
 	}
 
-	return allLessons, nil
+	for _, lesson := range allLessons {
+		hash := lesson.GetMD5()
+		cachedLesson := p.GetOrCacheLesson(hash, &lesson)
+		cachedLesson.SetIsUpdated(true)
+
+		for _, subgroup := range lesson.Subgroups() {
+			p.GetOrCacheSubgroup(subgroup, 0)
+			cachedLesson.AddSubgroup(subgroup)
+		}
+		p.GetOrCacheSubject(lesson.Subject(), 0)
+
+		timetable := NewTimetable(0, defaultDateStart, defaultDateEnd)
+		p.GetOrCacheTimetable(lesson.Timetable(), timetable)
+
+		for _, assignment := range lesson.TeacherLocationAssignments() {
+			p.GetOrCacheTeacher(assignment.Teacher(), 0)
+			p.GetOrCacheLocation(assignment.Location(), 0)
+		}
+	}
+
+	return nil
 }
 
 // getSubgroupName retrieves and normalizes the subgroup name
@@ -274,9 +519,9 @@ func (p *XlsxParser) getSubgroupName(file *excelize.File, colIndex int) (string,
 }
 
 // parseSubgroupLessons parses all lessons for a specific subgroup
-func (p *XlsxParser) parseSubgroupLessons(file *excelize.File, colIndex int, subgroupName string) ([]Lesson, error) {
-	var lessons []Lesson
+func (p *XlsxParser) parseSubgroupLessons(file *excelize.File, colIndex int, subgroupName, timetableName string) ([]Lesson, error) {
 	day := 0
+	lessons := make([]Lesson, 0)
 
 	for rowIndex := firstLessonRow; rowIndex <= lastLessonRow; rowIndex++ {
 		// Calculate current day based on row position
@@ -284,7 +529,7 @@ func (p *XlsxParser) parseSubgroupLessons(file *excelize.File, colIndex int, sub
 			day++
 		}
 
-		lessonData, err := p.parseLessonCell(file, colIndex, rowIndex, subgroupName, day)
+		lessonData, err := p.parseLessonCell(file, colIndex, rowIndex, subgroupName, timetableName, day)
 		if err != nil {
 			return nil, err
 		}
@@ -296,7 +541,8 @@ func (p *XlsxParser) parseSubgroupLessons(file *excelize.File, colIndex int, sub
 }
 
 // parseLessonCell parses a single cell that may contain one or more lessons
-func (p *XlsxParser) parseLessonCell(file *excelize.File, colIndex, rowIndex int, subgroupName string, day int) ([]Lesson, error) {
+func (p *XlsxParser) parseLessonCell(file *excelize.File, colIndex, rowIndex int, subgroupName, timetableName string, day int) ([]Lesson, error) {
+	lessons := make([]Lesson, 0)
 	cellName, err := excelize.CoordinatesToCellName(colIndex, rowIndex)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cell coordinates: %w", err)
@@ -326,10 +572,9 @@ func (p *XlsxParser) parseLessonCell(file *excelize.File, colIndex, rowIndex int
 
 	// Parse multiple lessons separated by " / "
 	lessonNames := strings.Split(rawValue, " / ")
-	var lessons []Lesson
 
 	for _, lessonName := range lessonNames {
-		lesson, err := p.parseLesson(lessonName, subgroupName, day, timeStart, repeatRule)
+		lesson, err := p.parseLesson(lessonName, subgroupName, timetableName, day, timeStart, repeatRule)
 		if err != nil {
 			return nil, err
 		}
@@ -381,14 +626,18 @@ func (p *XlsxParser) getLessonStartTime(file *excelize.File, rowIndex int) (time
 }
 
 // parseLesson parses a single lesson string into a Lesson struct
-func (p *XlsxParser) parseLesson(rawName, subgroupName string, day int, defaultStartTime time.Time, repeatRule int) (Lesson, error) {
+func (p *XlsxParser) parseLesson(rawName, subgroupName, timetableName string, day int, defaultStartTime time.Time, repeatRule int) (Lesson, error) {
 	matches := regexTimeNameType.FindStringSubmatch(rawName)
 
-	lesson := new(Lesson)
+	lesson := &Lesson{
+		subgroups: make(map[string]struct{}),
+	}
+	lesson.id = uuid.Nil
 	lesson.SetRawName(rawName)
-	lesson.SetSubgroup(subgroupName)
-	lesson.SetDay(day)
-	lesson.SetRepeatRule(repeatRule)
+	lesson.SetDay(int32(day))
+	lesson.SetRepeatRule(int32(repeatRule))
+	lesson.SetTimetable(timetableName)
+	lesson.AddSubgroup(subgroupName)
 
 	// If regex doesn't match, create a minimal lesson
 	if matches == nil {
@@ -398,7 +647,7 @@ func (p *XlsxParser) parseLesson(rawName, subgroupName string, day int, defaultS
 		lesson.SetSubject(rawName)
 		lesson.SetCategory(unknownValue)
 		lesson.SetTimeStart(timeToMinutes(defaultStartTime))
-		lesson.SetTimeEnd(timeToMinutes(defaultStartTime) + int(lessonDuration.Minutes()))
+		lesson.SetTimeEnd(timeToMinutes(defaultStartTime) + int32(lessonDuration.Minutes()))
 		lesson.SetTeacherLocationAssignments(teacherLocationAssignments)
 
 		return *lesson, nil
@@ -417,10 +666,18 @@ func (p *XlsxParser) parseLesson(rawName, subgroupName string, day int, defaultS
 	lesson.SetSubject(matches[2])
 	lesson.SetCategory(matches[3])
 	lesson.SetTimeStart(timeToMinutes(startTime))
-	lesson.SetTimeEnd(lesson.TimeStart() + int(lessonDuration.Minutes()))
+	lesson.SetTimeEnd(lesson.TimeStart() + int32(lessonDuration.Minutes()))
 	lesson.SetTeacherLocationAssignments(parseTeacherLocations(matches[4]))
 
 	return *lesson, nil
+}
+
+func (l Lesson) GetMD5() string {
+	s := fmt.Sprintf("%s,%s,%s,%d,%d,%d,%d", l.timetable, l.subject, l.category, l.day, l.timeStart, l.timeEnd, l.repeatRule)
+	for _, assignment := range l.teacherLocationAssignments {
+		s += fmt.Sprintf(",%s-%s", assignment.teacher, assignment.location)
+	}
+	return fmt.Sprintf("%x", md5.Sum([]byte(s)))
 }
 
 // parseTeacherLocations extracts teacher and location information
@@ -450,6 +707,13 @@ func parseTeacherLocations(teachersLocationString string) []TeacherLocationAssig
 		teacherLocationAssignment := NewTeacherLocationAssignment(teacher, location)
 		assignments = append(assignments, *teacherLocationAssignment)
 	}
+
+	slices.SortFunc(assignments, func(a, b TeacherLocationAssignment) int {
+		if a.teacher != b.teacher {
+			return strings.Compare(a.teacher, b.teacher)
+		}
+		return strings.Compare(a.location, b.location)
+	})
 
 	return assignments
 }
@@ -530,6 +794,6 @@ func removeAllSpaces(s string) string {
 }
 
 // timeToMinutes converts a time.Time to minutes since midnight
-func timeToMinutes(t time.Time) int {
-	return t.Hour()*60 + t.Minute()
+func timeToMinutes(t time.Time) int32 {
+	return int32(t.Hour()*60 + t.Minute())
 }

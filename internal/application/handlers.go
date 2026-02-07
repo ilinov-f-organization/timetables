@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"time"
 	api "timetables/internal/api"
 	"timetables/internal/lib"
@@ -27,40 +29,13 @@ var (
 	defaultDateEnd   = time.Unix(0, 0)
 )
 
-type importCache struct {
-	locations  map[string]int32
-	subgroups  map[string]int32
-	subjects   map[string]int32
-	teachers   map[string]int32
-	timetables map[string]int32
-	lessons    map[string]uuid.UUID
-}
-
 type Server struct {
-	repo  *repository.Repo
-	cache importCache
-}
-
-func (s Server) clearServerCache() {
-	clear(s.cache.locations)
-	clear(s.cache.subgroups)
-	clear(s.cache.subjects)
-	clear(s.cache.teachers)
-	clear(s.cache.timetables)
-	clear(s.cache.lessons)
+	repo *repository.Repo
 }
 
 func NewServer(repo *repository.Repo) *Server {
 	return &Server{
 		repo: repo,
-		cache: importCache{
-			locations:  make(map[string]int32),
-			subgroups:  make(map[string]int32),
-			subjects:   make(map[string]int32),
-			teachers:   make(map[string]int32),
-			timetables: make(map[string]int32),
-			lessons:    make(map[string]uuid.UUID),
-		},
 	}
 }
 
@@ -74,29 +49,50 @@ func (s Server) GetErrorsId(ctx context.Context, request api.GetErrorsIdRequestO
 	panic("implement me")
 }
 
-func (s Server) PostImport(ctx context.Context, request api.PostImportRequestObject) (api.PostImportResponseObject, error) {
+func (s *Server) PostImport(ctx context.Context, request api.PostImportRequestObject) (api.PostImportResponseObject, error) {
 	files, err := unarchive(request)
 	if err != nil {
 		return nil, err
 	}
+
+	parser := lib.NewXlsxParser()
+
+	//if err := loadCashFromDB(ctx, s, parser); err != nil {
+	//}
+
 	for fileName, file := range files {
-		xlsx, err := lib.ParseXlsx(file)
+		if strings.Contains(fileName, "ehkzamenov") {
+			continue
+		}
+		err := parser.Parse(file)
 		if err != nil {
 			slog.Error("error in parsing xlsx", "file", fileName, "err", err.Error())
 			continue
 		}
-		err = saveXlsx(ctx, &s, xlsx)
-		if err != nil {
-			return nil, err
-		}
-
 	}
+
+	if err := writeCashToDB(ctx, s, parser); err != nil {
+		return nil, err
+	}
+
+	for _, hash := range parser.LessonsHashes() {
+		if len(parser.GetLessonByHash(hash).Subgroups()) > 1 {
+			lesson := parser.GetLessonByHash(hash)
+			fmt.Printf("%s %s %s ", lesson.Timetable(), lesson.Subject(), lesson.Category())
+			for _, sg := range lesson.Subgroups() {
+				fmt.Printf("%s ", sg)
+			}
+			fmt.Printf("\n")
+		}
+	}
+
+	fmt.Printf("LocationsNames: %d\nSubgroups: %d\nSubjects: %d\nTeachers: %d\nTimetables: %d\nLessons: %d\n", len(parser.LocationsNames()), len(parser.SubgroupsNames()), len(parser.SubjectsNames()), len(parser.TeachersNames()), len(parser.TimetablesNames()), len(parser.LessonsHashes()))
 	//TODO implement me
 	//panic("implement me")
 	return nil, nil
 }
 
-func saveXlsx(ctx context.Context, s *Server, xlsx *lib.ParsedXlsx) error {
+func writeCashToDB(ctx context.Context, s *Server, parser *lib.XlsxParser) error {
 	tx, err := s.repo.Pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -104,68 +100,179 @@ func saveXlsx(ctx context.Context, s *Server, xlsx *lib.ParsedXlsx) error {
 	defer tx.Rollback(ctx)
 
 	qtx := s.repo.WithTx(tx)
-	timetableId, err := qtx.GetOrCreateTimetableByName(ctx, sqlc.GetOrCreateTimetableByNameParams{
-		Name:      xlsx.Timetable(),
-		DateStart: defaultDateStart,
-		DateEnd:   defaultDateEnd,
-	})
 
+	if err := writeTeachersCashToDB(ctx, qtx, parser); err != nil {
+		return err
+	}
+	if err := writeLocationsCashToDB(ctx, qtx, parser); err != nil {
+		return err
+	}
+	if err := writeSubjectsCashToDB(ctx, qtx, parser); err != nil {
+		return err
+	}
+	if err := writeSubgroupsCashToDB(ctx, qtx, parser); err != nil {
+		return err
+	}
+	if err := writeTimetablesCashToDB(ctx, qtx, parser); err != nil {
+		return err
+	}
+	if err := writeLessonsCashToDB(ctx, qtx, parser); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func writeTeachersCashToDB(ctx context.Context, qtx *sqlc.Queries, parser *lib.XlsxParser) error {
+	if _, err := qtx.CreateTeachers(ctx, parser.TeachersNames()); err != nil {
+		return err
+	}
+	teachers, err := qtx.GetAllTeachers(ctx)
+	if err != nil {
+		return err
+	}
+	for _, teacher := range teachers {
+		if err := parser.RewriteCacheTeacher(teacher.Name, teacher.ID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeLocationsCashToDB(ctx context.Context, qtx *sqlc.Queries, parser *lib.XlsxParser) error {
+	if _, err := qtx.CreateLocations(ctx, parser.LocationsNames()); err != nil {
+		return err
+	}
+	locations, err := qtx.GetAllLocations(ctx)
+	if err != nil {
+		return err
+	}
+	for _, location := range locations {
+		if err := parser.RewriteCacheLocation(location.Name, location.ID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeSubjectsCashToDB(ctx context.Context, qtx *sqlc.Queries, parser *lib.XlsxParser) error {
+	if _, err := qtx.CreateSubjects(ctx, parser.SubjectsNames()); err != nil {
+		return err
+	}
+	subjects, err := qtx.GetAllSubjects(ctx)
+	if err != nil {
+		return err
+	}
+	for _, subject := range subjects {
+		if err := parser.RewriteCacheSubject(subject.Name, subject.ID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeSubgroupsCashToDB(ctx context.Context, qtx *sqlc.Queries, parser *lib.XlsxParser) error {
+	if _, err := qtx.CreateSubgroups(ctx, parser.SubgroupsNames()); err != nil {
+		return err
+	}
+	subgroups, err := qtx.GetAllSubgroups(ctx)
+	if err != nil {
+		return err
+	}
+	for _, subgroup := range subgroups {
+		if err := parser.RewriteCacheSubgroup(subgroup.Name, subgroup.ID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeTimetablesCashToDB(ctx context.Context, qtx *sqlc.Queries, parser *lib.XlsxParser) error {
+	createParams := make([]sqlc.CreateTimetablesParams, 0)
+
+	for _, timetableName := range parser.TimetablesNames() {
+		timetable := parser.GetOrCacheTimetable(timetableName, nil)
+		createParams = append(createParams, sqlc.CreateTimetablesParams{
+			Name:      timetableName,
+			DateStart: timetable.DateStart(),
+			DateEnd:   timetable.DateEnd(),
+		})
+	}
+
+	if _, err := qtx.CreateTimetables(ctx, createParams); err != nil {
+		return err
+	}
+	timetables, err := qtx.GetAllTimetables(ctx)
+	if err != nil {
+		return err
+	}
+	for _, timetable := range timetables {
+
+		if err := parser.RewriteCacheTimetable(timetable.Name,
+			lib.NewTimetable(timetable.ID, timetable.DateStart, timetable.DateEnd)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeLessonsCashToDB(ctx context.Context, qtx *sqlc.Queries, parser *lib.XlsxParser) error {
+	createParams := make([]sqlc.CreateLessonsParams, 0)
+
+	for _, hash := range parser.LessonsHashes() {
+		lesson := parser.GetLessonByHash(hash)
+		createParams = append(createParams, sqlc.CreateLessonsParams{
+			Hash:        hash,
+			SubjectID:   parser.GetOrCacheSubject(lesson.Subject(), 0),
+			Category:    lesson.Category(),
+			Day:         lesson.Day(),
+			TimeStart:   lesson.TimeStart(),
+			TimeEnd:     lesson.TimeEnd(),
+			RepeatRule:  lesson.RepeatRule(),
+			TimetableID: parser.GetOrCacheTimetable(lesson.Timetable(), nil).Id(),
+		})
+
+	}
+
+	_, err := qtx.CreateLessons(ctx, createParams)
 	if err != nil {
 		return err
 	}
 
-	for _, lesson := range xlsx.Lessons() {
-		subjectId, err := qtx.GetOrCreateSubjectByName(ctx, lesson.Subject())
+	for _, hash := range parser.LessonsHashes() {
+		lessonID, err := qtx.GetLessonIDByHash(ctx, hash)
 		if err != nil {
 			return err
 		}
-		lessonId, err := qtx.CreateLesson(ctx, sqlc.CreateLessonParams{
-			SubjectID:   subjectId,
-			Category:    lesson.Category(),
-			Day:         int32(lesson.Day()),
-			TimeStart:   int32(lesson.TimeStart()),
-			TimeEnd:     int32(lesson.TimeEnd()),
-			RepeatRule:  int32(lesson.RepeatRule()),
-			TimetableID: timetableId,
-		})
-		if err != nil {
-			return err
-		}
-
-		subgroupId, err := qtx.GetOrCreateSubgroupByName(ctx, lesson.Subgroup())
-		if err != nil {
-			return err
-		}
-		err = qtx.AssignSubgroupToLesson(ctx, sqlc.AssignSubgroupToLessonParams{
-			LessonID:   lessonId,
-			SubgroupID: subgroupId,
-		})
-		if err != nil {
-			return err
-		}
+		lesson := parser.GetLessonByHash(hash)
 		for _, assignment := range lesson.TeacherLocationAssignments() {
-			teacherId, err := qtx.GetOrCreateTeacherByName(ctx, assignment.Teacher())
-			if err != nil {
-				return err
-			}
-			locationId, err := qtx.GetOrCreateLocationByName(ctx, assignment.Location())
-			if err != nil {
-				return err
-			}
-
-			err = qtx.AssignTeacherLocationToLesson(ctx, sqlc.AssignTeacherLocationToLessonParams{
-				LessonID:   lessonId,
-				TeacherID:  teacherId,
-				LocationID: locationId,
+			err := qtx.AssignTeacherLocationToLesson(ctx, sqlc.AssignTeacherLocationToLessonParams{
+				LessonID:   lessonID,
+				TeacherID:  parser.GetOrCacheTeacher(assignment.Teacher(), 0),
+				LocationID: parser.GetOrCacheLocation(assignment.Location(), 0),
 			})
 			if err != nil {
 				return err
 			}
+		}
 
+		for _, subgroup := range lesson.Subgroups() {
+			err := qtx.AssignSubgroupToLesson(ctx, sqlc.AssignSubgroupToLessonParams{
+				LessonID:   lessonID,
+				SubgroupID: parser.GetOrCacheSubgroup(subgroup, 0),
+			})
+			if err != nil {
+				return err
+			}
 		}
 	}
 
-	return tx.Commit(ctx)
+	return nil
 }
 
 func unarchive(request api.PostImportRequestObject) (map[string][]byte, error) {

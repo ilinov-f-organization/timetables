@@ -50,6 +50,11 @@ func SerializeICS(lessons []api.Lesson, name string) ([]byte, error) {
 			description += fmt.Sprintf("%s -> %s\n", *assignment.Location.Name, *assignment.Teacher.Name)
 			location += *assignment.Location.Name + " "
 		}
+
+		description += fmt.Sprintf("\nГруппы:\n")
+		for _, subgroup := range *lesson.Subgroups {
+			description += fmt.Sprintf("%s\n", *subgroup.Name)
+		}
 		event.SetLocation(location)
 		event.SetDescription(description)
 	}
