@@ -1194,7 +1194,7 @@ paths:
             schema:
               $ref: '#/components/schemas/lesson'
       responses:
-        '200':
+        '201':
           description: lesson created
           content:
             application/json:

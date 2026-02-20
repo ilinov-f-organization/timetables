@@ -1,3 +1,5 @@
+-- XLSX IMPORT
+
 -- name: CreateStagingTables :exec
 SELECT create_staging_tables();
 
@@ -33,6 +35,8 @@ VALUES (@staging_id, @subgroup);
 -- name: InsertStagingTeacherLocationAssignments :copyfrom
 INSERT INTO teacher_location_assignments_staging (staging_id, teacher, location)
 VALUES (@staging_id, @teacher, @location);
+
+-- LESSONS
 
 -- name: CreateLesson :one
 INSERT INTO lessons (subject_id, category, day, time_start, time_end, repeat_rule, timetable_id, hash)
@@ -138,7 +142,6 @@ FROM teacher_location_assignments
 WHERE lesson_id IN (SELECT lesson_id FROM subgroups_assignments WHERE subgroups_assignments.subgroup_id = @subgroup_id)
 ORDER BY teacher_name, location_name;
 
-
 -- name: GetLessonsByLocationsId :many
 SELECT l.id, l.subject_id, l.category, l.day, l.time_start, l.time_end, l.repeat_rule, l.timetable_id,
        s.name AS subject_name, tt.name AS timetable_name, tt.date_start, tt.date_end
@@ -160,7 +163,6 @@ SELECT *, (SELECT name FROM teachers WHERE teachers.id = teacher_id) AS teacher_
 FROM teacher_location_assignments
 WHERE lesson_id IN (SELECT lesson_id FROM teacher_location_assignments WHERE teacher_location_assignments.location_id = @location_id)
 ORDER BY teacher_name, location_name;
-
 
 -- name: GetLessonsBySubjectId :many
 SELECT l.id, l.subject_id, l.category, l.day, l.time_start, l.time_end, l.repeat_rule, l.timetable_id,
@@ -184,3 +186,64 @@ FROM teacher_location_assignments
 WHERE lesson_id IN (SELECT lessons.id FROM lessons WHERE subject_id = @subject_id)
 ORDER BY teacher_name, location_name;
 
+-- LOCATIONS
+
+-- name: GetLocationsOnPage :many
+SELECT id, name FROM locations
+WHERE (sqlc.narg(name)::TEXT IS NULL OR name ILIKE '%' || sqlc.narg(name)::TEXT || '%')
+ORDER BY name
+LIMIT sqlc.arg(page_size)::INTEGER
+    OFFSET sqlc.arg(page_size)::INTEGER * (sqlc.arg(page)::INTEGER - 1);
+
+-- name: GetLocationsPagesAmount :one
+SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM locations;
+
+-- name: CreateLocation :one
+INSERT INTO locations (name)
+VALUES (@name) RETURNING id, name;
+
+-- name: GetLocationById :one
+SELECT *
+FROM locations
+WHERE id = @id;
+
+-- name: PatchLocationById :one
+UPDATE locations
+SET name = @name
+WHERE id = @id RETURNING id, name;
+
+-- name: DeleteLocationById :one
+DELETE
+FROM locations
+WHERE id = @id RETURNING id, name;
+
+-- SUBGROUPS
+
+-- name: GetSubgroupsOnPage :many
+SELECT id, name FROM subgroups
+WHERE (sqlc.narg(name)::TEXT IS NULL OR name ILIKE '%' || sqlc.narg(name)::TEXT || '%')
+ORDER BY name
+LIMIT sqlc.arg(page_size)::INTEGER
+    OFFSET sqlc.arg(page_size)::INTEGER * (sqlc.arg(page)::INTEGER - 1);
+
+-- name: GetSubgroupsPagesAmount :one
+SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM subgroups;
+
+-- name: CreateSubgroup :one
+INSERT INTO subgroups (name)
+VALUES (@name) RETURNING id, name;
+
+-- name: GetSubgroupById :one
+SELECT *
+FROM subgroups
+WHERE id = @id;
+
+-- name: PatchSubgroupById :one
+UPDATE subgroups
+SET name = @name
+WHERE id = @id RETURNING id, name;
+
+-- name: DeleteSubgroupById :one
+DELETE
+FROM subgroups
+WHERE id = @id RETURNING id, name;

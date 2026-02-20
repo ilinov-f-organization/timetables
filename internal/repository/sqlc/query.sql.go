@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createLesson = `-- name: CreateLesson :one
+
 INSERT INTO lessons (subject_id, category, day, time_start, time_end, repeat_rule, timetable_id, hash)
 VALUES ($1, $2, $3, $4, $5, $6, $7,
         md5(
@@ -37,6 +39,7 @@ type CreateLessonParams struct {
 	TimetableID int32
 }
 
+// LESSONS
 func (q *Queries) CreateLesson(ctx context.Context, arg CreateLessonParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, createLesson,
 		arg.SubjectID,
@@ -52,13 +55,39 @@ func (q *Queries) CreateLesson(ctx context.Context, arg CreateLessonParams) (uui
 	return id, err
 }
 
+const createLocation = `-- name: CreateLocation :one
+INSERT INTO locations (name)
+VALUES ($1) RETURNING id, name
+`
+
+func (q *Queries) CreateLocation(ctx context.Context, name string) (Location, error) {
+	row := q.db.QueryRow(ctx, createLocation, name)
+	var i Location
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
 const createStagingTables = `-- name: CreateStagingTables :exec
+
 SELECT create_staging_tables()
 `
 
+// XLSX IMPORT
 func (q *Queries) CreateStagingTables(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, createStagingTables)
 	return err
+}
+
+const createSubgroup = `-- name: CreateSubgroup :one
+INSERT INTO subgroups (name)
+VALUES ($1) RETURNING id, name
+`
+
+func (q *Queries) CreateSubgroup(ctx context.Context, name string) (Subgroup, error) {
+	row := q.db.QueryRow(ctx, createSubgroup, name)
+	var i Subgroup
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
 }
 
 type CreateSubgroupAssignmentsParams struct {
@@ -88,6 +117,32 @@ SELECT delete_lesson_assignments($1)
 func (q *Queries) DeleteLessonAssignments(ctx context.Context, lessonID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, deleteLessonAssignments, lessonID)
 	return err
+}
+
+const deleteLocationById = `-- name: DeleteLocationById :one
+DELETE
+FROM locations
+WHERE id = $1 RETURNING id, name
+`
+
+func (q *Queries) DeleteLocationById(ctx context.Context, id int32) (Location, error) {
+	row := q.db.QueryRow(ctx, deleteLocationById, id)
+	var i Location
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
+const deleteSubgroupById = `-- name: DeleteSubgroupById :one
+DELETE
+FROM subgroups
+WHERE id = $1 RETURNING id, name
+`
+
+func (q *Queries) DeleteSubgroupById(ctx context.Context, id int32) (Subgroup, error) {
+	row := q.db.QueryRow(ctx, deleteSubgroupById, id)
+	var i Subgroup
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
 }
 
 const flushStagingToMain = `-- name: FlushStagingToMain :exec
@@ -749,6 +804,126 @@ func (q *Queries) GetLessonsSubgroupsByTeacherId(ctx context.Context, teacherID 
 	return items, nil
 }
 
+const getLocationById = `-- name: GetLocationById :one
+SELECT id, name
+FROM locations
+WHERE id = $1
+`
+
+func (q *Queries) GetLocationById(ctx context.Context, id int32) (Location, error) {
+	row := q.db.QueryRow(ctx, getLocationById, id)
+	var i Location
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
+const getLocationsOnPage = `-- name: GetLocationsOnPage :many
+
+SELECT id, name FROM locations
+WHERE ($1::TEXT IS NULL OR name ILIKE '%' || $1::TEXT || '%')
+ORDER BY name
+LIMIT $2::INTEGER
+    OFFSET $2::INTEGER * ($3::INTEGER - 1)
+`
+
+type GetLocationsOnPageParams struct {
+	Name     pgtype.Text
+	PageSize int32
+	Page     int32
+}
+
+// LOCATIONS
+func (q *Queries) GetLocationsOnPage(ctx context.Context, arg GetLocationsOnPageParams) ([]Location, error) {
+	rows, err := q.db.Query(ctx, getLocationsOnPage, arg.Name, arg.PageSize, arg.Page)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Location
+	for rows.Next() {
+		var i Location
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getLocationsPagesAmount = `-- name: GetLocationsPagesAmount :one
+SELECT CEILING(COUNT(*) / ($1::INT)::FLOAT)::INT FROM locations
+`
+
+func (q *Queries) GetLocationsPagesAmount(ctx context.Context, pageSize int32) (int32, error) {
+	row := q.db.QueryRow(ctx, getLocationsPagesAmount, pageSize)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const getSubgroupById = `-- name: GetSubgroupById :one
+SELECT id, name
+FROM subgroups
+WHERE id = $1
+`
+
+func (q *Queries) GetSubgroupById(ctx context.Context, id int32) (Subgroup, error) {
+	row := q.db.QueryRow(ctx, getSubgroupById, id)
+	var i Subgroup
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
+const getSubgroupsOnPage = `-- name: GetSubgroupsOnPage :many
+
+SELECT id, name FROM subgroups
+WHERE ($1::TEXT IS NULL OR name ILIKE '%' || $1::TEXT || '%')
+ORDER BY name
+LIMIT $2::INTEGER
+    OFFSET $2::INTEGER * ($3::INTEGER - 1)
+`
+
+type GetSubgroupsOnPageParams struct {
+	Name     pgtype.Text
+	PageSize int32
+	Page     int32
+}
+
+// SUBGROUPS
+func (q *Queries) GetSubgroupsOnPage(ctx context.Context, arg GetSubgroupsOnPageParams) ([]Subgroup, error) {
+	rows, err := q.db.Query(ctx, getSubgroupsOnPage, arg.Name, arg.PageSize, arg.Page)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Subgroup
+	for rows.Next() {
+		var i Subgroup
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getSubgroupsPagesAmount = `-- name: GetSubgroupsPagesAmount :one
+SELECT CEILING(COUNT(*) / ($1::INT)::FLOAT)::INT FROM subgroups
+`
+
+func (q *Queries) GetSubgroupsPagesAmount(ctx context.Context, pageSize int32) (int32, error) {
+	row := q.db.QueryRow(ctx, getSubgroupsPagesAmount, pageSize)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 type InsertStagingLessonsParams struct {
 	StagingID  uuid.UUID
 	Subject    string
@@ -806,6 +981,42 @@ func (q *Queries) PatchLesson(ctx context.Context, arg PatchLessonParams) error 
 		arg.ID,
 	)
 	return err
+}
+
+const patchLocationById = `-- name: PatchLocationById :one
+UPDATE locations
+SET name = $1
+WHERE id = $2 RETURNING id, name
+`
+
+type PatchLocationByIdParams struct {
+	Name string
+	ID   int32
+}
+
+func (q *Queries) PatchLocationById(ctx context.Context, arg PatchLocationByIdParams) (Location, error) {
+	row := q.db.QueryRow(ctx, patchLocationById, arg.Name, arg.ID)
+	var i Location
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
+const patchSubgroupById = `-- name: PatchSubgroupById :one
+UPDATE subgroups
+SET name = $1
+WHERE id = $2 RETURNING id, name
+`
+
+type PatchSubgroupByIdParams struct {
+	Name string
+	ID   int32
+}
+
+func (q *Queries) PatchSubgroupById(ctx context.Context, arg PatchSubgroupByIdParams) (Subgroup, error) {
+	row := q.db.QueryRow(ctx, patchSubgroupById, arg.Name, arg.ID)
+	var i Subgroup
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
 }
 
 const updateStagingHash = `-- name: UpdateStagingHash :exec

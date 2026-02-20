@@ -12,7 +12,7 @@ import (
 	repository "timetables/internal/repository"
 	sqlc "timetables/internal/repository/sqlc"
 
-	"github.com/google/uuid"
+	uuid "github.com/google/uuid"
 )
 
 const multipartMaxMemory = 128 * 1024 * 1024
@@ -259,7 +259,7 @@ func (a *Application) PostLessons(ctx context.Context, request api.PostLessonsRe
 		}, nil
 	}
 
-	response := api.PostLessons200JSONResponse(*request.Body)
+	response := api.PostLessons201JSONResponse(*request.Body)
 	response.Id = lessonId
 	return response, nil
 }
@@ -780,54 +780,305 @@ func getLessonBySubjectId(ctx context.Context, repo *repository.Repo, request ap
 }
 
 func (a *Application) GetLocations(ctx context.Context, request api.GetLocationsRequestObject) (api.GetLocationsResponseObject, error) {
-	//TODO implement me
-	panic("implement me")
+	params := newSearchParams(request.Params.Page, request.Params.PageSize, request.Params.Search)
+	locations, err := a.repo.GetLocationsOnPage(ctx, sqlc.GetLocationsOnPageParams{
+		Name:     params.search,
+		PageSize: params.pageSize,
+		Page:     params.page,
+	})
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.GetLocations500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+	amount, err := a.repo.GetLocationsPagesAmount(ctx, params.pageSize)
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.GetLocations500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+
+	response := api.ListLocations{
+		Locations: make([]api.Location, len(locations)),
+		Pagination: api.Pagination{
+			Page:       params.page,
+			TotalPages: amount,
+		},
+	}
+	for i, location := range locations {
+		response.Locations[i] = api.Location{
+			Id:   location.ID,
+			Name: location.Name,
+		}
+	}
+
+	return api.GetLocations200JSONResponse(response), nil
 }
 
 func (a *Application) PostLocations(ctx context.Context, request api.PostLocationsRequestObject) (api.PostLocationsResponseObject, error) {
-	//TODO implement me
-	panic("implement me")
+	switch ctx.Value(apiRole) {
+	case roleUnauthorized:
+		return api.PostLocations401JSONResponse{
+			Code: api.CODEUNAUTHORIZED,
+		}, nil
+	case roleUser:
+		return api.PostLocations403JSONResponse{
+			Code: api.CODEFORBIDDEN,
+		}, nil
+	case roleAdmin:
+		break
+	}
+
+	location, err := a.repo.CreateLocation(ctx, request.Body.Name)
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.PostLocations500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+
+	return api.PostLocations201JSONResponse{
+		Id:   location.ID,
+		Name: location.Name,
+	}, nil
 }
 
 func (a *Application) DeleteLocationsId(ctx context.Context, request api.DeleteLocationsIdRequestObject) (api.DeleteLocationsIdResponseObject, error) {
-	//TODO implement me
-	panic("implement me")
+	switch ctx.Value(apiRole) {
+	case roleUnauthorized:
+		return api.DeleteLocationsId401JSONResponse{
+			Code: api.CODEUNAUTHORIZED,
+		}, nil
+	case roleUser:
+		return api.DeleteLocationsId403JSONResponse{
+			Code: api.CODEFORBIDDEN,
+		}, nil
+	case roleAdmin:
+		break
+	}
+
+	_, err := a.repo.DeleteLocationById(ctx, request.Id)
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.DeleteLocationsId500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+
+	return api.DeleteLocationsId200Response{}, nil
 }
 
 func (a *Application) GetLocationsId(ctx context.Context, request api.GetLocationsIdRequestObject) (api.GetLocationsIdResponseObject, error) {
-	//TODO implement me
-	panic("implement me")
+	location, err := a.repo.GetLocationById(ctx, request.Id)
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.GetLocationsId500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+
+	return api.GetLocationsId200JSONResponse{
+		Id:   location.ID,
+		Name: location.Name,
+	}, nil
 }
 
 func (a *Application) PatchLocationsId(ctx context.Context, request api.PatchLocationsIdRequestObject) (api.PatchLocationsIdResponseObject, error) {
-	//TODO implement me
-	panic("implement me")
+	switch ctx.Value(apiRole) {
+	case roleUnauthorized:
+		return api.PatchLocationsId401JSONResponse{
+			Code: api.CODEUNAUTHORIZED,
+		}, nil
+	case roleUser:
+		return api.PatchLocationsId403JSONResponse{
+			Code: api.CODEFORBIDDEN,
+		}, nil
+	case roleAdmin:
+		break
+	}
+
+	location, err := a.repo.PatchLocationById(ctx, sqlc.PatchLocationByIdParams{
+		Name: request.Body.Name,
+		ID:   request.Id,
+	})
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.PatchLocationsId500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+
+	return api.PatchLocationsId200JSONResponse{
+		Id:   location.ID,
+		Name: location.Name,
+	}, nil
 }
 
 func (a *Application) GetSubgroups(ctx context.Context, request api.GetSubgroupsRequestObject) (api.GetSubgroupsResponseObject, error) {
-	//TODO implement me
-	panic("implement me")
+	params := newSearchParams(request.Params.Page, request.Params.PageSize, request.Params.Search)
+	subgroups, err := a.repo.GetSubgroupsOnPage(ctx, sqlc.GetSubgroupsOnPageParams{
+		Name:     params.search,
+		PageSize: params.pageSize,
+		Page:     params.page,
+	})
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.GetSubgroups500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+	amount, err := a.repo.GetSubgroupsPagesAmount(ctx, params.pageSize)
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.GetSubgroups500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+
+	response := api.ListSubgroups{
+		Subgroups: make([]api.Subgroup, len(subgroups)),
+		Pagination: api.Pagination{
+			Page:       params.page,
+			TotalPages: amount,
+		},
+	}
+	for i, subgroup := range subgroups {
+		response.Subgroups[i] = api.Subgroup{
+			Id:   subgroup.ID,
+			Name: subgroup.Name,
+		}
+	}
+
+	return api.GetSubgroups200JSONResponse(response), nil
+
 }
 
 func (a *Application) PostSubgroups(ctx context.Context, request api.PostSubgroupsRequestObject) (api.PostSubgroupsResponseObject, error) {
-	//TODO implement me
-	//panic("implement me")
-	return nil, nil
+	switch ctx.Value(apiRole) {
+	case roleUnauthorized:
+		return api.PostSubgroups401JSONResponse{
+			Code: api.CODEUNAUTHORIZED,
+		}, nil
+	case roleUser:
+		return api.PostSubgroups403JSONResponse{
+			Code: api.CODEFORBIDDEN,
+		}, nil
+	case roleAdmin:
+		break
+	}
+
+	subgroup, err := a.repo.CreateSubgroup(ctx, request.Body.Name)
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.PostSubgroups500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+
+	return api.PostSubgroups201JSONResponse{
+		Id:   subgroup.ID,
+		Name: subgroup.Name,
+	}, nil
+
 }
 
 func (a *Application) DeleteSubgroupsId(ctx context.Context, request api.DeleteSubgroupsIdRequestObject) (api.DeleteSubgroupsIdResponseObject, error) {
-	//TODO implement me
-	panic("implement me")
+	switch ctx.Value(apiRole) {
+	case roleUnauthorized:
+		return api.DeleteSubgroupsId401JSONResponse{
+			Code: api.CODEUNAUTHORIZED,
+		}, nil
+	case roleUser:
+		return api.DeleteSubgroupsId403JSONResponse{
+			Code: api.CODEFORBIDDEN,
+		}, nil
+	case roleAdmin:
+		break
+	}
+
+	_, err := a.repo.DeleteSubgroupById(ctx, request.Id)
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.DeleteSubgroupsId500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+
+	return api.DeleteSubgroupsId200Response{}, nil
+
 }
 
 func (a *Application) GetSubgroupsId(ctx context.Context, request api.GetSubgroupsIdRequestObject) (api.GetSubgroupsIdResponseObject, error) {
-	//TODO implement me
-	panic("implement me")
+	subgroup, err := a.repo.GetSubgroupById(ctx, request.Id)
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.GetSubgroupsId500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+
+	return api.GetSubgroupsId200JSONResponse{
+		Id:   subgroup.ID,
+		Name: subgroup.Name,
+	}, nil
 }
 
 func (a *Application) PatchSubgroupsId(ctx context.Context, request api.PatchSubgroupsIdRequestObject) (api.PatchSubgroupsIdResponseObject, error) {
-	//TODO implement me
-	panic("implement me")
+	switch ctx.Value(apiRole) {
+	case roleUnauthorized:
+		return api.PatchSubgroupsId401JSONResponse{
+			Code: api.CODEUNAUTHORIZED,
+		}, nil
+	case roleUser:
+		return api.PatchSubgroupsId403JSONResponse{
+			Code: api.CODEFORBIDDEN,
+		}, nil
+	case roleAdmin:
+		break
+	}
+
+	subgroup, err := a.repo.PatchSubgroupById(ctx, sqlc.PatchSubgroupByIdParams{
+		Name: request.Body.Name,
+		ID:   request.Id,
+	})
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.PatchSubgroupsId500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
+
+	return api.PatchSubgroupsId200JSONResponse{
+		Id:   subgroup.ID,
+		Name: subgroup.Name,
+	}, nil
+
 }
 
 func (a *Application) GetSubjects(ctx context.Context, request api.GetSubjectsRequestObject) (api.GetSubjectsResponseObject, error) {
