@@ -450,6 +450,15 @@ func (a *Application) PatchLessonsId(ctx context.Context, request api.PatchLesso
 			Message: &message,
 		}, nil
 	}
+	err = tx.Commit(ctx)
+	if err != nil {
+		message := err.Error()
+		slog.ErrorContext(ctx, message)
+		return api.PatchLessonsId500JSONResponse{
+			Code:    api.CODEDBERROR,
+			Message: &message,
+		}, nil
+	}
 
 	response := api.PatchLessonsId200JSONResponse(*request.Body)
 	response.Id = request.Id
