@@ -819,7 +819,10 @@ func (a *Application) GetLocations(ctx context.Context, request api.GetLocations
 			Message: &message,
 		}, nil
 	}
-	amount, err := a.repo.GetLocationsPagesAmount(ctx, params.pageSize)
+	amount, err := a.repo.GetLocationsPagesAmount(ctx, sqlc.GetLocationsPagesAmountParams{
+		PageSize: params.pageSize,
+		Name:     params.search,
+	})
 	if err != nil {
 		message := err.Error()
 		slog.ErrorContext(ctx, message)
@@ -968,7 +971,10 @@ func (a *Application) GetSubgroups(ctx context.Context, request api.GetSubgroups
 			Message: &message,
 		}, nil
 	}
-	amount, err := a.repo.GetSubgroupsPagesAmount(ctx, params.pageSize)
+	amount, err := a.repo.GetSubgroupsPagesAmount(ctx, sqlc.GetSubgroupsPagesAmountParams{
+		PageSize: params.pageSize,
+		Name:     params.search,
+	})
 	if err != nil {
 		message := err.Error()
 		slog.ErrorContext(ctx, message)
@@ -1121,7 +1127,10 @@ func (a *Application) GetTeachers(ctx context.Context, request api.GetTeachersRe
 			Message: &message,
 		}, nil
 	}
-	amount, err := a.repo.GetTeachersPagesAmount(ctx, params.pageSize)
+	amount, err := a.repo.GetTeachersPagesAmount(ctx, sqlc.GetTeachersPagesAmountParams{
+		PageSize: params.pageSize,
+		Name:     params.search,
+	})
 	if err != nil {
 		message := err.Error()
 		slog.ErrorContext(ctx, message)
@@ -1272,7 +1281,10 @@ func (a *Application) GetSubjects(ctx context.Context, request api.GetSubjectsRe
 			Message: &message,
 		}, nil
 	}
-	amount, err := a.repo.GetSubjectsPagesAmount(ctx, params.pageSize)
+	amount, err := a.repo.GetSubjectsPagesAmount(ctx, sqlc.GetSubjectsPagesAmountParams{
+		PageSize: params.pageSize,
+		Name:     params.search,
+	})
 	if err != nil {
 		message := err.Error()
 		slog.ErrorContext(ctx, message)
@@ -1424,7 +1436,10 @@ func (a *Application) GetTimetables(ctx context.Context, request api.GetTimetabl
 			Message: &message,
 		}, nil
 	}
-	amount, err := a.repo.GetTimetablesPagesAmount(ctx, params.pageSize)
+	amount, err := a.repo.GetTimetablesPagesAmount(ctx, sqlc.GetTimetablesPagesAmountParams{
+		PageSize: params.pageSize,
+		Name:     params.search,
+	})
 	if err != nil {
 		message := err.Error()
 		slog.ErrorContext(ctx, message)

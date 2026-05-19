@@ -196,7 +196,8 @@ LIMIT sqlc.arg(page_size)::INTEGER
     OFFSET sqlc.arg(page_size)::INTEGER * (sqlc.arg(page)::INTEGER - 1);
 
 -- name: GetLocationsPagesAmount :one
-SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM locations;
+SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM locations
+WHERE (sqlc.narg(name)::TEXT IS NULL OR name ILIKE '%' || sqlc.narg(name)::TEXT || '%');
 
 -- name: CreateLocation :one
 INSERT INTO locations (name)
@@ -227,7 +228,8 @@ LIMIT sqlc.arg(page_size)::INTEGER
     OFFSET sqlc.arg(page_size)::INTEGER * (sqlc.arg(page)::INTEGER - 1);
 
 -- name: GetSubgroupsPagesAmount :one
-SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM subgroups;
+SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM subgroups
+WHERE (sqlc.narg(name)::TEXT IS NULL OR name ILIKE '%' || sqlc.narg(name)::TEXT || '%');
 
 -- name: CreateSubgroup :one
 INSERT INTO subgroups (name)
@@ -258,7 +260,8 @@ LIMIT sqlc.arg(page_size)::INTEGER
     OFFSET sqlc.arg(page_size)::INTEGER * (sqlc.arg(page)::INTEGER - 1);
 
 -- name: GetSubjectsPagesAmount :one
-SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM subjects;
+SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM subjects
+WHERE (sqlc.narg(name)::TEXT IS NULL OR name ILIKE '%' || sqlc.narg(name)::TEXT || '%');
 
 -- name: CreateSubject :one
 INSERT INTO subjects (name)
@@ -289,7 +292,8 @@ LIMIT sqlc.arg(page_size)::INTEGER
     OFFSET sqlc.arg(page_size)::INTEGER * (sqlc.arg(page)::INTEGER - 1);
 
 -- name: GetTeachersPagesAmount :one
-SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM teachers;
+SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM teachers
+WHERE (sqlc.narg(name)::TEXT IS NULL OR name ILIKE '%' || sqlc.narg(name)::TEXT || '%');
 
 -- name: CreateTeacher :one
 INSERT INTO teachers (name)
@@ -320,7 +324,8 @@ LIMIT sqlc.arg(page_size)::INTEGER
     OFFSET sqlc.arg(page_size)::INTEGER * (sqlc.arg(page)::INTEGER - 1);
 
 -- name: GetTimetablesPagesAmount :one
-SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM timetables;
+SELECT CEILING(COUNT(*) / (@page_size::INT)::FLOAT)::INT FROM timetables
+WHERE (sqlc.narg(name)::TEXT IS NULL OR name ILIKE '%' || sqlc.narg(name)::TEXT || '%');
 
 -- name: CreateTimetable :one
 INSERT INTO timetables (name, date_start, date_end, week)
