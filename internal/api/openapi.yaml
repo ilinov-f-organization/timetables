@@ -6,6 +6,24 @@ info:
 servers:
   - url: 'http://0.0.0.0:8081'
 paths:
+  /getme:
+    get:
+      summary: get user info
+      responses:
+        '200':
+          description:
+            getting user role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/user'
+        '500':
+          description: internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+
   /subgroups:
     get:
       summary: get paginated subgroups
@@ -1718,7 +1736,7 @@ components:
       properties:
         code:
           type: string
-          enum: [CODE_BAD_REQUEST, CODE_UNAUTHORIZED, CODE_FORBIDDEN, CODE_WRONG_ARCHIVE, CODE_WRONG_XLSX, CODE_CANNOT_SERIALIZE_ICS, CODE_DB_ERROR]
+          enum: [ CODE_BAD_REQUEST, CODE_UNAUTHORIZED, CODE_FORBIDDEN, CODE_WRONG_ARCHIVE, CODE_WRONG_XLSX, CODE_CANNOT_SERIALIZE_ICS, CODE_DB_ERROR ]
         message:
           type: string
         file:
@@ -1732,3 +1750,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/error'
+    user:
+      type: object
+      required:
+        - role
+      properties:
+        role:
+          type: string
+          enum: [ unauthorized, user, admin ]

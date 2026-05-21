@@ -17,6 +17,29 @@ import (
 
 const multipartMaxMemory = 128 * 1024 * 1024
 
+func (a Application) GetGetme(ctx context.Context, request api.GetGetmeRequestObject) (api.GetGetmeResponseObject, error) {
+	switch ctx.Value(apiRole) {
+	case roleUnauthorized:
+		return api.GetGetme200JSONResponse{
+			Role: api.UserRoleUnauthorized,
+		}, nil
+	case roleUser:
+		return api.GetGetme200JSONResponse{
+			Role: api.UserRoleUser,
+		}, nil
+	case roleAdmin:
+		return api.GetGetme200JSONResponse{
+			Role: api.UserRoleAdmin,
+		}, nil
+	}
+
+	return api.GetGetme500JSONResponse{
+		Code:    api.CODEBADREQUEST,
+		File:    nil,
+		Message: nil,
+	}, nil
+}
+
 func (a *Application) GetErrors(ctx context.Context, request api.GetErrorsRequestObject) (api.GetErrorsResponseObject, error) {
 	//TODO implement me
 	panic("implement me")

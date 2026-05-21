@@ -35,6 +35,13 @@ const (
 	CODEWRONGXLSX          ErrorCode = "CODE_WRONG_XLSX"
 )
 
+// Defines values for UserRole.
+const (
+	UserRoleAdmin        UserRole = "admin"
+	UserRoleUnauthorized UserRole = "unauthorized"
+	UserRoleUser         UserRole = "user"
+)
+
 // Defines values for GetLessonsTableIdParamsFormat.
 const (
 	Ics  GetLessonsTableIdParamsFormat = "ics"
@@ -158,6 +165,14 @@ type Timetable struct {
 	Week      int32     `json:"week"`
 }
 
+// User defines model for user.
+type User struct {
+	Role UserRole `json:"role"`
+}
+
+// UserRole defines model for User.Role.
+type UserRole string
+
 // GetErrorsParams defines parameters for GetErrors.
 type GetErrorsParams struct {
 	PageSize *int32 `form:"pageSize,omitempty" json:"pageSize,omitempty"`
@@ -263,6 +278,9 @@ type ServerInterface interface {
 	// get error in data assignments
 	// (GET /errors/{id})
 	GetErrorsId(w http.ResponseWriter, r *http.Request, id int32)
+	// get user info
+	// (GET /getme)
+	GetGetme(w http.ResponseWriter, r *http.Request)
 	// import data from zip
 	// (POST /import)
 	PostImport(w http.ResponseWriter, r *http.Request)
@@ -424,6 +442,23 @@ func (siw *ServerInterfaceWrapper) GetErrorsId(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetErrorsId(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// GetGetme operation middleware
+func (siw *ServerInterfaceWrapper) GetGetme(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGetme(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1450,6 +1485,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc("GET "+options.BaseURL+"/errors", wrapper.GetErrors)
 	m.HandleFunc("GET "+options.BaseURL+"/errors/{id}", wrapper.GetErrorsId)
+	m.HandleFunc("GET "+options.BaseURL+"/getme", wrapper.GetGetme)
 	m.HandleFunc("POST "+options.BaseURL+"/import", wrapper.PostImport)
 	m.HandleFunc("POST "+options.BaseURL+"/lessons", wrapper.PostLessons)
 	m.HandleFunc("DELETE "+options.BaseURL+"/lessons/{id}", wrapper.DeleteLessonsId)
@@ -1558,6 +1594,31 @@ func (response GetErrorsId404JSONResponse) VisitGetErrorsIdResponse(w http.Respo
 type GetErrorsId500JSONResponse Error
 
 func (response GetErrorsId500JSONResponse) VisitGetErrorsIdResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetGetmeRequestObject struct {
+}
+
+type GetGetmeResponseObject interface {
+	VisitGetGetmeResponse(w http.ResponseWriter) error
+}
+
+type GetGetme200JSONResponse User
+
+func (response GetGetme200JSONResponse) VisitGetGetmeResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetGetme500JSONResponse Error
+
+func (response GetGetme500JSONResponse) VisitGetGetmeResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 
@@ -3299,6 +3360,9 @@ type StrictServerInterface interface {
 	// get error in data assignments
 	// (GET /errors/{id})
 	GetErrorsId(ctx context.Context, request GetErrorsIdRequestObject) (GetErrorsIdResponseObject, error)
+	// get user info
+	// (GET /getme)
+	GetGetme(ctx context.Context, request GetGetmeRequestObject) (GetGetmeResponseObject, error)
 	// import data from zip
 	// (POST /import)
 	PostImport(ctx context.Context, request PostImportRequestObject) (PostImportResponseObject, error)
@@ -3468,6 +3532,30 @@ func (sh *strictHandler) GetErrorsId(w http.ResponseWriter, r *http.Request, id 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetErrorsIdResponseObject); ok {
 		if err := validResponse.VisitGetErrorsIdResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetGetme operation middleware
+func (sh *strictHandler) GetGetme(w http.ResponseWriter, r *http.Request) {
+	var request GetGetmeRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetGetme(ctx, request.(GetGetmeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetGetme")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetGetmeResponseObject); ok {
+		if err := validResponse.VisitGetGetmeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
